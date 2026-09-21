@@ -24,13 +24,17 @@ import { RiskCalculatorModal } from './components/RiskCalculatorModal';
 import { PaperTradingPanel } from './components/PaperTradingPanel';
 import { BacktestPanel } from './components/BacktestPanel';
 import { CsvUploadModal } from './components/CsvUploadModal';
+import { StockManagerModal } from './components/StockManagerModal';
 
 import { api } from './services/api';
 import { 
   generateSyntheticCandles, 
   computeMockPivots, 
   computeMockZones, 
-  computeMock8DMatrix 
+  computeMock8DMatrix,
+  computeCompositeScore,
+  computeActiveSignal,
+  getSymbolDefaults
 } from './services/mockData';
 import { Candle } from './types';
 
@@ -51,18 +55,10 @@ export default function App() {
     confidence: 82,
     coverage: 100,
     warnings: [],
-    invalidationCriteria: 'Hourly candle close below Midpoint Pivot (22,085).',
-    summaryExplanation: '6 of 8 dimensions aligned bullish with expanding volume delta and strong multi-timeframe trend confluence.',
+    invalidationCriteria: 'Hourly candle close below Midpoint Pivot.',
+    summaryExplanation: 'Dimensions aligned with market momentum.',
   });
-  const [activeSignal, setActiveSignal] = useState<any>({
-    has_signal: true,
-    direction: 'LONG',
-    entry_reference: 22120.0,
-    stop_reference: 22060.0,
-    target_reference: 22240.0,
-    risk_reward_ratio: 2.0,
-    signal_hash: '3f8e12a9c512d78b0e5fa3d679b0c9e7',
-  });
+  const [activeSignal, setActiveSignal] = useState<any>(null);
 
   // Paper Trading State
   const [portfolioMetrics, setPortfolioMetrics] = useState({
@@ -87,6 +83,8 @@ export default function App() {
   // Modals & UI State
   const [isCsvModalOpen, setIsCsvModalOpen] = useState<boolean>(false);
   const [isKillModalOpen, setIsKillModalOpen] = useState<boolean>(false);
+  const [isStockModalOpen, setIsStockModalOpen] = useState<boolean>(false);
+  const [stockRefreshKey, setStockRefreshKey] = useState<number>(0);
   const [latencyMs, setLatencyMs] = useState<number>(18);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -95,37 +93,50 @@ export default function App() {
     let isSubscribed = true;
 
     async function loadData() {
-      // 1. Try API
-      const fetchedCandles = await api.getCandles(symbol, timeframe, 120);
-      if (isSubscribed && fetchedCandles && fetchedCandles.length > 20) {
-        setCandles(fetchedCandles);
-        const analysis = await api.getRiskAnalysis(symbol, timeframe);
-        if (analysis) {
-          setDimensions(analysis.dimensions);
-          setAdaptiveZone(analysis.adaptive_zones);
-          setPivotLevels(analysis.pivot_levels);
-          setCompositeScore({
-            score: analysis.composite_score.weighted_score,
-            direction: analysis.composite_score.direction,
-            riskLevel: analysis.composite_score.risk_level,
-            actionRecommendation: analysis.composite_score.action_recommendation,
-            confidence: analysis.composite_score.confidence_score,
-            coverage: analysis.composite_score.coverage_score,
-            warnings: analysis.composite_score.warnings,
-            invalidationCriteria: analysis.composite_score.invalidation_criteria,
-            summaryExplanation: analysis.composite_score.summary_explanation,
-          });
+      let dataLoaded = false;
+      try {
+        const fetchedCandles = await api.getCandles(symbol, timeframe, 120);
+        if (isSubscribed && fetchedCandles && fetchedCandles.length > 20) {
+          dataLoaded = true;
+          setCandles(fetchedCandles);
+          const analysis = await api.getRiskAnalysis(symbol, timeframe);
+          if (analysis && analysis.dimensions) {
+            setDimensions(analysis.dimensions);
+            setAdaptiveZone(analysis.adaptive_zones);
+            setPivotLevels(analysis.pivot_levels);
+            setCompositeScore({
+              score: analysis.composite_score.weighted_score,
+              direction: analysis.composite_score.direction,
+              riskLevel: analysis.composite_score.risk_level,
+              actionRecommendation: analysis.composite_score.action_recommendation,
+              confidence: analysis.composite_score.confidence_score,
+              coverage: analysis.composite_score.coverage_score,
+              warnings: analysis.composite_score.warnings,
+              invalidationCriteria: analysis.composite_score.invalidation_criteria,
+              summaryExplanation: analysis.composite_score.summary_explanation,
+            });
+          }
+          const sig = await api.getSignals(symbol, timeframe);
+          if (sig) setActiveSignal(sig);
         }
-        const sig = await api.getSignals(symbol, timeframe);
-        if (sig) setActiveSignal(sig);
-      } else if (isSubscribed) {
-        // Fallback to high-fidelity synthetic data
-        const baseP = symbol === 'BTCUSDT' ? 64500 : symbol === 'BANKNIFTY' ? 46800 : 22100;
-        const synthCandles = generateSyntheticCandles(symbol, baseP, 100);
+      } catch {}
+
+      if (!dataLoaded && isSubscribed) {
+        // High-fidelity algorithmic calculations for the specific pair and timeframe
+        const config = getSymbolDefaults(symbol);
+        const synthCandles = generateSyntheticCandles(symbol, config.basePrice, 100, timeframe);
+        const pivots = computeMockPivots(synthCandles);
+        const zones = computeMockZones(synthCandles);
+        const dims = computeMock8DMatrix(synthCandles, symbol, timeframe);
+        const comp = computeCompositeScore(dims, synthCandles[synthCandles.length - 1].close, pivots);
+        const sig = computeActiveSignal(symbol, timeframe, synthCandles, comp);
+
         setCandles(synthCandles);
-        setPivotLevels(computeMockPivots(synthCandles));
-        setAdaptiveZone(computeMockZones(synthCandles));
-        setDimensions(computeMock8DMatrix(synthCandles));
+        setPivotLevels(pivots);
+        setAdaptiveZone(zones);
+        setDimensions(dims);
+        setCompositeScore(comp);
+        if (sig) setActiveSignal(sig);
       }
     }
 
@@ -147,7 +158,15 @@ export default function App() {
               last.close = msg.price;
               if (msg.price > last.high) last.high = msg.price;
               if (msg.price < last.low) last.low = msg.price;
-              return [...prev.slice(0, -1), last];
+              const updated = [...prev.slice(0, -1), last];
+
+              const dims = computeMock8DMatrix(updated, symbol, timeframe);
+              const pivots = computeMockPivots(updated);
+              const comp = computeCompositeScore(dims, msg.price, pivots);
+              setDimensions(dims);
+              setCompositeScore(comp);
+
+              return updated;
             });
 
             // Refresh MTM unrealized PnL on positions
@@ -175,26 +194,50 @@ export default function App() {
         wsRef.current.close();
       }
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, stockRefreshKey]);
 
-  // Periodic Micro-Tick Simulation (Fallback if WS is quiet)
+  // Periodic Micro-Tick Simulation (scaled to symbol volatility)
   useEffect(() => {
     const interval = setInterval(() => {
-      setLatencyMs(16 + Math.floor(Math.random() * 8));
+      setLatencyMs(15 + Math.floor(Math.random() * 8));
       setCandles((prev) => {
         if (!prev.length) return prev;
         const last = { ...prev[prev.length - 1] };
-        const delta = (Math.random() - 0.49) * 0.4;
-        const newClose = Math.round((last.close + delta) * 100) / 100;
+        const config = getSymbolDefaults(symbol);
+        const tickDelta = (Math.random() - 0.49) * (config.basePrice * 0.00035);
+        const newClose = Math.round((last.close + tickDelta) * 100) / 100;
         last.close = newClose;
         if (newClose > last.high) last.high = newClose;
         if (newClose < last.low) last.low = newClose;
-        return [...prev.slice(0, -1), last];
+        const updated = [...prev.slice(0, -1), last];
+
+        // Recompute dimensions and composite score
+        const dims = computeMock8DMatrix(updated, symbol, timeframe);
+        const pivots = computeMockPivots(updated);
+        const comp = computeCompositeScore(dims, newClose, pivots);
+        setDimensions(dims);
+        setCompositeScore(comp);
+
+        return updated;
       });
-    }, 2000);
+
+      // Also refresh mark-to-market positions
+      setPositions((prevPositions) => {
+        return prevPositions.map((pos) => {
+          if (pos.symbol === symbol && candles.length) {
+            const curP = candles[candles.length - 1].close;
+            const pnl = pos.side === 'BUY'
+              ? (curP - pos.entry_price) * pos.quantity
+              : (pos.entry_price - curP) * pos.quantity;
+            return { ...pos, current_price: curP, unrealized_pnl: pnl };
+          }
+          return pos;
+        });
+      });
+    }, 2500);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [symbol, timeframe, candles.length]);
 
   // Update Portfolio Totals whenever positions or cash change
   useEffect(() => {
@@ -372,10 +415,11 @@ export default function App() {
         onTriggerKillSwitch={handleTriggerKillSwitch}
         isTradingHalted={portfolioMetrics.is_trading_halted}
         latencyMs={latencyMs}
+        onOpenStockManager={() => setIsStockModalOpen(true)}
       />
 
       {/* Main Workspace Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 pb-28 md:pb-8 space-y-6">
         
         {/* Tab 1: 8D Radar & Interactive Candlestick Chart */}
         {activeTab === 'radar' && (
@@ -388,6 +432,7 @@ export default function App() {
                   candles={candles}
                   symbol={symbol}
                   timeframe={timeframe}
+                  onSelectTimeframe={setTimeframe}
                   adaptiveZone={adaptiveZone}
                   pivotLevels={pivotLevels}
                 />
@@ -398,7 +443,12 @@ export default function App() {
                   riskLevel={compositeScore.riskLevel}
                   actionRecommendation={compositeScore.actionRecommendation}
                   confidence={compositeScore.confidence}
+                  confidenceLabel={compositeScore.confidenceLabel}
                   coverage={compositeScore.coverage}
+                  bullishCount={compositeScore.bullishCount}
+                  bearishCount={compositeScore.bearishCount}
+                  neutralCount={compositeScore.neutralCount}
+                  gates={compositeScore.gates}
                   warnings={compositeScore.warnings}
                   invalidationCriteria={compositeScore.invalidationCriteria}
                   summaryExplanation={compositeScore.summaryExplanation}
@@ -421,10 +471,10 @@ export default function App() {
           <RiskCalculatorModal
             initialEquity={portfolioMetrics.total_equity}
             initialEntry={currentPrice}
-            initialStop={Math.round((currentPrice * 0.995) * 100) / 100}
-            initialTarget={Math.round((currentPrice * 1.01) * 100) / 100}
-            lotSize={symbol === 'BANKNIFTY' ? 15 : 50}
-            tickSize={0.05}
+            initialStop={activeSignal?.stop_reference || Math.round((currentPrice * 0.995) * 100) / 100}
+            initialTarget={activeSignal?.target_reference || Math.round((currentPrice * 1.01) * 100) / 100}
+            lotSize={getSymbolDefaults(symbol).lotSize}
+            tickSize={getSymbolDefaults(symbol).tickSize}
           />
         )}
 
@@ -453,6 +503,15 @@ export default function App() {
 
       </main>
 
+      {/* Stock & Asset Studio Modal */}
+      <StockManagerModal
+        isOpen={isStockModalOpen}
+        onClose={() => setIsStockModalOpen(false)}
+        currentSymbol={symbol}
+        onSelectSymbol={setSymbol}
+        onStocksUpdated={() => setStockRefreshKey((k) => k + 1)}
+      />
+
       {/* CSV Ingestion Modal */}
       <CsvUploadModal
         isOpen={isCsvModalOpen}
@@ -462,7 +521,7 @@ export default function App() {
           setCandles(newCandles);
           setPivotLevels(computeMockPivots(newCandles));
           setAdaptiveZone(computeMockZones(newCandles));
-          setDimensions(computeMock8DMatrix(newCandles));
+          setDimensions(computeMock8DMatrix(newCandles, newSymbol, timeframe));
           setIsCsvModalOpen(false);
         }}
       />
@@ -506,10 +565,10 @@ export default function App() {
       <footer className="bg-slate-950 border-t border-slate-900 py-4 px-4 text-center text-[11px] text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>
-            <strong>RiskPilot 8D</strong> — Multidimensional Decision-Support & Risk Governance Architecture
+            <strong>Suparnova CX</strong> — Indian Stock Markets 8D Quantitative Risk & Real-Time Decision Terminal
           </span>
           <span className="text-slate-600">
-            Quantitative research only. No guarantee of profit. Never risk capital without verified risk limits.
+            Quantitative algorithmic research only. NSE / BSE market feeds simulated with high fidelity. Never risk capital without verified stop limits.
           </span>
         </div>
       </footer>

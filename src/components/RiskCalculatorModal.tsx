@@ -47,7 +47,8 @@ export const RiskCalculatorModal: React.FC<RiskCalculatorProps> = ({
     if (initialEntry) setEntryPrice(initialEntry);
     if (initialStop) setStopPrice(initialStop);
     if (initialTarget) setTargetPrice(initialTarget);
-  }, [initialEntry, initialStop, initialTarget]);
+    if (lotSize) setContractLotSize(lotSize);
+  }, [initialEntry, initialStop, initialTarget, lotSize]);
 
   // Mathematical Calculation Engine
   const maxAllowableRisk = (equity * riskPct) / 100;
@@ -114,7 +115,7 @@ export const RiskCalculatorModal: React.FC<RiskCalculatorProps> = ({
           
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-slate-300 font-medium block mb-1">Account Equity (₹/$)</label>
+              <label className="text-xs text-slate-300 font-medium block mb-1">Account Equity (₹)</label>
               <input
                 type="number"
                 value={equity}

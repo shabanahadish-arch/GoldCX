@@ -20,6 +20,7 @@ interface CandleChartProps {
   candles: Candle[];
   symbol: string;
   timeframe: string;
+  onSelectTimeframe?: (tf: string) => void;
   adaptiveZone?: {
     zone_id: number;
     zone_name: string;
@@ -36,6 +37,7 @@ export const CandleChart: React.FC<CandleChartProps> = ({
   candles,
   symbol,
   timeframe,
+  onSelectTimeframe,
   adaptiveZone,
   pivotLevels,
 }) => {
@@ -294,10 +296,10 @@ export const CandleChart: React.FC<CandleChartProps> = ({
 
           {activeInspection && (
             <div className="hidden sm:flex items-center space-x-3 text-xs font-mono">
-              <span className="text-slate-400">O: <strong className="text-slate-200">{activeInspection.open.toFixed(2)}</strong></span>
-              <span className="text-slate-400">H: <strong className="text-slate-200">{activeInspection.high.toFixed(2)}</strong></span>
-              <span className="text-slate-400">L: <strong className="text-slate-200">{activeInspection.low.toFixed(2)}</strong></span>
-              <span className="text-slate-400">C: <strong className={priceDiff >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{activeInspection.close.toFixed(2)}</strong></span>
+              <span className="text-slate-400">O: <strong className="text-slate-200">₹{activeInspection.open.toFixed(2)}</strong></span>
+              <span className="text-slate-400">H: <strong className="text-slate-200">₹{activeInspection.high.toFixed(2)}</strong></span>
+              <span className="text-slate-400">L: <strong className="text-slate-200">₹{activeInspection.low.toFixed(2)}</strong></span>
+              <span className="text-slate-400">C: <strong className={priceDiff >= 0 ? 'text-emerald-400' : 'text-rose-400'}>₹{activeInspection.close.toFixed(2)}</strong></span>
               <span className={`text-xs px-1.5 py-0.5 rounded ${priceDiff >= 0 ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
                 {priceDiff >= 0 ? '+' : ''}{pricePct.toFixed(2)}%
               </span>
@@ -305,12 +307,30 @@ export const CandleChart: React.FC<CandleChartProps> = ({
           )}
         </div>
 
-        {/* Overlay Controls & Active Zone Badge */}
+        {/* Overlay Controls, Timeframes & Active Zone Badge */}
         <div className="flex items-center space-x-2">
+          {onSelectTimeframe && (
+            <div className="hidden md:flex items-center space-x-0.5 bg-slate-950/80 p-0.5 rounded-lg border border-slate-800 text-[11px] font-mono">
+              {['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1D'].map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => onSelectTimeframe(tf)}
+                  className={`px-1.5 py-0.5 rounded font-semibold transition-all ${
+                    timeframe === tf
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          )}
+
           {showZones && adaptiveZone && (
-            <div className="flex items-center space-x-1.5 text-xs bg-slate-800/90 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
+            <div className="flex items-center space-x-1.5 text-xs bg-slate-800/90 text-slate-300 px-2 py-1 rounded-md border border-slate-700">
               <Layers className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="font-medium">{adaptiveZone.zone_name}</span>
+              <span className="font-medium hidden sm:inline">{adaptiveZone.zone_name}</span>
             </div>
           )}
 

@@ -15,6 +15,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { api } from '../services/api';
+import { getSymbolDefaults } from '../services/mockData';
 
 interface BacktestPanelProps {
   currentSymbol: string;
@@ -40,7 +41,7 @@ export const BacktestPanel: React.FC<BacktestPanelProps> = ({
         timeframe: currentTimeframe,
         initial_capital: initialCapital,
         risk_per_trade_pct: riskPct,
-        lot_size: currentSymbol === 'BANKNIFTY' ? 15 : 50,
+        lot_size: getSymbolDefaults(currentSymbol).lotSize,
         value_per_point: 1.0,
         tick_size: 0.05,
         brokerage_per_order: 20.0,
@@ -71,12 +72,18 @@ export const BacktestPanel: React.FC<BacktestPanelProps> = ({
         max_consecutive_losses: 2,
         avg_holding_bars: 14.2,
         total_friction_paid: 1840.0,
-        trades: [
-          { id: 'TRD-01', direction: 'LONG', entry_price: 22050, exit_price: 22180, quantity: 50, net_pnl: 6420, return_pct: 1.28, exit_reason: 'TARGET', holding_bars: 18 },
-          { id: 'TRD-02', direction: 'SHORT', entry_price: 22200, exit_price: 22110, quantity: 50, net_pnl: 4420, return_pct: 0.88, exit_reason: 'TARGET', holding_bars: 12 },
-          { id: 'TRD-03', direction: 'LONG', entry_price: 22150, exit_price: 22110, quantity: 50, net_pnl: -2080, return_pct: -0.42, exit_reason: 'STOP', holding_bars: 8 },
-          { id: 'TRD-04', direction: 'LONG', entry_price: 22120, exit_price: 22260, quantity: 50, net_pnl: 6920, return_pct: 1.38, exit_reason: 'TARGET', holding_bars: 21 },
-        ],
+        trades: (() => {
+          const symConf = getSymbolDefaults(currentSymbol);
+          const base = symConf.basePrice;
+          const step = Math.round(base * 0.006 * 100) / 100;
+          const qty = symConf.lotSize;
+          return [
+            { id: 'TRD-01', direction: 'LONG', entry_price: Math.round((base - step) * 100) / 100, exit_price: Math.round((base + step) * 100) / 100, quantity: qty, net_pnl: Math.round(step * 2 * qty * 0.95), return_pct: 1.28, exit_reason: 'TARGET', holding_bars: 18 },
+            { id: 'TRD-02', direction: 'SHORT', entry_price: Math.round((base + step * 1.2) * 100) / 100, exit_price: Math.round((base) * 100) / 100, quantity: qty, net_pnl: Math.round(step * 1.2 * qty * 0.95), return_pct: 0.88, exit_reason: 'TARGET', holding_bars: 12 },
+            { id: 'TRD-03', direction: 'LONG', entry_price: Math.round((base + step * 0.5) * 100) / 100, exit_price: Math.round((base - step * 0.4) * 100) / 100, quantity: qty, net_pnl: -Math.round(step * 0.9 * qty), return_pct: -0.42, exit_reason: 'STOP', holding_bars: 8 },
+            { id: 'TRD-04', direction: 'LONG', entry_price: Math.round((base - step * 0.2) * 100) / 100, exit_price: Math.round((base + step * 1.5) * 100) / 100, quantity: qty, net_pnl: Math.round(step * 1.7 * qty * 0.95), return_pct: 1.38, exit_reason: 'TARGET', holding_bars: 21 },
+          ];
+        })(),
         equity_curve: Array.from({ length: 25 }, (_, i) => ({
           time: `Bar ${i * 4}`,
           equity: initialCapital + (i * 1750) + (Math.sin(i) * 3500),

@@ -16,6 +16,7 @@ import {
   Play,
   RotateCcw
 } from 'lucide-react';
+import { getSymbolDefaults } from '../services/mockData';
 
 interface Position {
   id: string;
@@ -99,6 +100,21 @@ export const PaperTradingPanel: React.FC<PaperTradingPanelProps> = ({
   const [stopPrice, setStopPrice] = useState<number>(() => Math.round((currentPrice * 0.995) * 100) / 100);
   const [targetPrice, setTargetPrice] = useState<number>(() => Math.round((currentPrice * 1.01) * 100) / 100);
   const [orderType, setOrderType] = useState<string>('MARKET');
+
+  // Sync order ticket whenever active symbol or current price changes
+  React.useEffect(() => {
+    const config = getSymbolDefaults(currentSymbol);
+    setQuantity(config.lotSize);
+
+    const step = config.basePrice * 0.005;
+    if (orderSide === 'BUY') {
+      setStopPrice(Math.round((currentPrice - step) * 100) / 100);
+      setTargetPrice(Math.round((currentPrice + step * 2) * 100) / 100);
+    } else {
+      setStopPrice(Math.round((currentPrice + step) * 100) / 100);
+      setTargetPrice(Math.round((currentPrice - step * 2) * 100) / 100);
+    }
+  }, [currentSymbol, currentPrice, orderSide]);
 
   const handleOrderSubmit = (e: React.FormEvent) => {
     e.preventDefault();

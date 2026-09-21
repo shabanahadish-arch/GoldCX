@@ -1,6 +1,6 @@
 {
-  "name": "RiskPilot 8D",
-  "description": "Multidimensional real-time market risk analysis, adaptive zones, pivots, and decision-support platform.",
+  "name": "Suparnova CX",
+  "description": "Institutional Indian stock market risk analysis, NIFTY 50 & Bank Nifty multi-dimensional 8D analytics, sector breakdown, and real-time execution engine.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
