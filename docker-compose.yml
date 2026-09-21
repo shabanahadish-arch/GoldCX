@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: riskpilot_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8000
+      - DATABASE_URL=postgresql+asyncpg://riskpilot:riskpilot_secure_pass@db:5432/riskpilot_8d
+      - REDIS_URL=redis://redis:6379/0
+      - ENABLE_LIVE_TRADING=false
+      - PAPER_MODE=true
+      - LIVE_TRADING_CONFIRMATION=false
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: riskpilot_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: riskpilot_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: riskpilot
+      POSTGRES_PASSWORD: riskpilot_secure_pass
+      POSTGRES_DB: riskpilot_8d
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U riskpilot -d riskpilot_8d"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: riskpilot_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:
